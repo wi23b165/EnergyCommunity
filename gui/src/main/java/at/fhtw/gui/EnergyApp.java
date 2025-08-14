@@ -9,24 +9,28 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
-
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class EnergyApp extends Application {
-    private static final String API_URL = "http://localhost:8081/energy"; // <- API runs on 8081
+    private static final String API_URL = "http://localhost:8081/energy"; // API on 8081
     private final HttpClient http = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
     private Label communityLabel;
     private Label gridLabel;
+
+    private Timer autoRefreshTimer;
+    private boolean autoRefreshRunning = false;
 
     @Override
     public void start(Stage stage) {
@@ -37,8 +41,11 @@ public class EnergyApp extends Application {
         communityLabel = new Label("Community Produced: –");
         gridLabel = new Label("Grid Used: –");
         Button refreshButton = new Button("Refresh");
-
         refreshButton.setOnAction(e -> fetchCurrent());
+
+        // Auto-refresh button (CREATE IT BEFORE adding to the VBox!)
+        Button autoRefreshButton = new Button("Start Auto-Refresh");
+        autoRefreshButton.setOnAction(e -> toggleAutoRefresh(autoRefreshButton));
 
         // Historical data section
         Label historicalLabel = new Label("Historical Data:");
@@ -47,7 +54,6 @@ public class EnergyApp extends Application {
         Button showDataButton = new Button("Show Data");
         TextArea resultArea = new TextArea();
         resultArea.setEditable(false);
-
         showDataButton.setOnAction(e -> fetchHistorical(startDate, endDate, resultArea));
 
         GridPane historicalGrid = new GridPane();
@@ -60,7 +66,8 @@ public class EnergyApp extends Application {
 
         VBox root = new VBox(20,
                 titleLabel,
-                currentLabel, communityLabel, gridLabel, refreshButton,
+                currentLabel, communityLabel, gridLabel,
+                refreshButton, autoRefreshButton,   // now it exists 👍
                 historicalLabel, historicalGrid, showDataButton, resultArea
         );
         root.setPadding(new Insets(20));
@@ -68,6 +75,9 @@ public class EnergyApp extends Application {
         Scene scene = new Scene(root, 600, 500);
         stage.setScene(scene);
         stage.setTitle("Energy Community");
+        stage.setOnCloseRequest(e -> {
+            if (autoRefreshTimer != null) autoRefreshTimer.cancel();
+        });
         stage.show();
     }
 
@@ -76,6 +86,7 @@ public class EnergyApp extends Application {
         new Thread(() -> {
             try {
                 var res = http.send(req, HttpResponse.BodyHandlers.ofString());
+
                 if (res.statusCode() == 204) {
                     Platform.runLater(() -> {
                         communityLabel.setText("Community Produced: (no data)");
@@ -83,13 +94,23 @@ public class EnergyApp extends Application {
                     });
                     return;
                 }
+                if (res.statusCode() >= 400) {
+                    Platform.runLater(() -> showError("HTTP " + res.statusCode() + " — " + res.body()));
+                    return;
+                }
+
                 EnergyUsageDTO dto = mapper.readValue(res.body(), EnergyUsageDTO.class);
                 Platform.runLater(() -> {
-                    communityLabel.setText(String.format("Community Produced: %.3f kWh | Used: %.3f kWh", dto.communityProduced, dto.communityUsed));
-                    gridLabel.setText(String.format("Grid Used: %.3f kWh (hour %s)", dto.gridUsed, dto.hourIso));
+                    communityLabel.setText(String.format(
+                            "Community Produced: %.3f kWh | Used: %.3f kWh",
+                            dto.communityProduced, dto.communityUsed));
+                    gridLabel.setText(String.format(
+                            "Grid Used: %.3f kWh (hour %s)",
+                            dto.gridUsed, dto.hourIso));
                 });
             } catch (Exception ex) {
-                showError("Error fetching current data: " + ex.getMessage());
+                showError("Error fetching current data: " +
+                        (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()));
             }
         }).start();
     }
@@ -108,20 +129,23 @@ public class EnergyApp extends Application {
         new Thread(() -> {
             try {
                 var res = http.send(req, HttpResponse.BodyHandlers.ofString());
+
                 if (res.statusCode() >= 400) {
-                    Platform.runLater(() -> out.setText("Error: " + res.body()));
+                    Platform.runLater(() -> showError("HTTP " + res.statusCode() + " — " + res.body()));
                     return;
                 }
+
                 EnergyUsageDTO[] list = mapper.readValue(res.body(), EnergyUsageDTO[].class);
 
                 String text = Arrays.stream(list)
                         .map(d -> String.format("%s  produced=%.3f  used=%.3f  grid=%.3f",
                                 d.hourIso, d.communityProduced, d.communityUsed, d.gridUsed))
-                        .collect(Collectors.joining("\n"));   // <— keine reduce-Zeile mehr
+                        .collect(Collectors.joining("\n"));
 
                 Platform.runLater(() -> out.setText(text.isEmpty() ? "(no data)" : text));
             } catch (Exception ex) {
-                showError("Error fetching historical data: " + ex.getMessage());
+                Platform.runLater(() -> showError("Error fetching historical data: " +
+                        (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage())));
             }
         }).start();
     }
@@ -134,6 +158,24 @@ public class EnergyApp extends Application {
             alert.setContentText(message);
             alert.showAndWait();
         });
+    }
+
+    private void toggleAutoRefresh(Button btn) {
+        if (autoRefreshRunning) {
+            if (autoRefreshTimer != null) {
+                autoRefreshTimer.cancel();
+                autoRefreshTimer = null;
+            }
+            autoRefreshRunning = false;
+            btn.setText("Start Auto-Refresh");
+        } else {
+            autoRefreshTimer = new Timer(true);
+            autoRefreshTimer.scheduleAtFixedRate(new TimerTask() {
+                @Override public void run() { fetchCurrent(); }
+            }, 0, 10_000); // every 10 seconds
+            autoRefreshRunning = true;
+            btn.setText("Stop Auto-Refresh");
+        }
     }
 
     // minimal DTO to map API responses
