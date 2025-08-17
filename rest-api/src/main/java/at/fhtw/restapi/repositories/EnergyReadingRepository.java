@@ -23,4 +23,5 @@ public interface EnergyReadingRepository extends JpaRepository<EnergyReading, Lo
         """, nativeQuery = true)
     List<Object[]> aggregateByHour(@Param("from") LocalDateTime from,
                                    @Param("to")   LocalDateTime to);
+    List<EnergyReading> findAllByOrderByRecordedAtDesc();
 }

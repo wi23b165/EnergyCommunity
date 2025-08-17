@@ -13,8 +13,8 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/energy")
-@CrossOrigin(origins = "http://localhost:8081") // adjust if GUI runs elsewhere
+@RequestMapping({"/energy", "/api/energy"})   // <-- beide Präfixe erlaubt
+@CrossOrigin(origins = "http://localhost:8080") // GUI läuft normalerweise auf 8080
 public class EnergyController {
 
     private final EnergyService energyService;
@@ -37,16 +37,15 @@ public class EnergyController {
 
     @GetMapping("/historical")
     public ResponseEntity<?> getHistorical(
-            @RequestParam("start") String start,   // <-- explicit names fix the -parameters problem
-            @RequestParam("end")   String end) {
+            @RequestParam("start") String start,
+            @RequestParam("end") String end) {
 
         try {
             LocalDate s = LocalDate.parse(start, DateTimeFormatter.ISO_DATE);
-            LocalDate e = LocalDate.parse(end,   DateTimeFormatter.ISO_DATE);
+            LocalDate e = LocalDate.parse(end, DateTimeFormatter.ISO_DATE);
             if (e.isBefore(s)) {
                 return ResponseEntity.badRequest().body(Map.of("error", "End date must be after start date"));
             }
-            // [from, to) – end exclusive so whole 'end' day is included
             LocalDateTime from = s.atStartOfDay();
             LocalDateTime to   = e.plusDays(1).atStartOfDay();
 

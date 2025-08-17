@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -24,4 +25,19 @@ public class IngressController {
         EnergyReading r = new EnergyReading(ts, produced, used, grid);
         return ResponseEntity.ok(repo.save(r));
     }
+    // ✅ NEW: GET all readings (newest first) for quick browser testing
+    @GetMapping("/reading")
+    public ResponseEntity<?> listAll() {
+        return ResponseEntity.ok(repo.findAll());
+    }
+
+    @GetMapping("/reading/latest")
+    public ResponseEntity<?> latest() {
+        return repo.findAll().stream()
+                .sorted((a,b) -> b.getRecordedAt().compareTo(a.getRecordedAt()))
+                .findFirst()
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.noContent().build());
+    }
+
 }
