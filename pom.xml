@@ -16,6 +16,8 @@
     <modules>
         <module>rest-api</module>
         <module>gui</module>
+        <module>producer-solar</module>
+        <module>usage-worker</module>
         <!-- later add: producer, consumer, services -->
     </modules>
 
