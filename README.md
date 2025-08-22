@@ -114,10 +114,12 @@ Die Desktop-GUI zeigt:
 - Docker-Setup für **Postgres & RabbitMQ**
 - REST-API (**Current/Historical + Ingress**)
 - Flyway-Migrationen **V1–V3 (+ Indizes)**
-- JavaFX GUI (**aktueller & historischer View**)
+- JavaFX GUI: Anzeige von aktuellem Stand & historischen Daten, Anbindung an REST-API
+- Build/Run: Komponenten (API, GUI) lassen sich unabhängig starten
 
 ## 🔜 Nächste Schritte
 
-- ProducerService (**publish nach RabbitMQ**)
-- ConsumerService (**consume & in DB speichern**)
+- Consumer: Nachrichten aus RabbitMQ konsumieren und die Usage-/Aggregat-Tabelle korrekt updaten; anschließend Update-Message auf die Queue senden
+- Current Percentage Service: Update-Message empfangen und current_percentage (View/Materialized View oder Tabelle) korrekt aktualisieren
+- Energy User: Producer, der alle 1–5 s sinnvolle kWh-Usage-Werte an RabbitMQ sendet
 - Optional: **Alert-Logik / weitere Vis**
