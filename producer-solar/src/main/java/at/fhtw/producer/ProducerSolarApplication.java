@@ -1,3 +1,4 @@
+// src/main/java/at/fhtw/producer/ProducerSolarApplication.java
 package at.fhtw.producer;
 
 import org.springframework.boot.SpringApplication;

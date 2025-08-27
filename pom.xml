@@ -18,6 +18,7 @@
         <module>gui</module>
         <module>producer-solar</module>
         <module>usage-worker</module>
+        <module>consumer-meter</module>
         <!-- later add: producer, consumer, services -->
     </modules>
 

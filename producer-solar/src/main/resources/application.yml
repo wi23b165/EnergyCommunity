@@ -1,0 +1,27 @@
+# src/main/resources/application.yml
+spring:
+  application:
+    name: producer-solar
+  jackson:
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: false
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PASS:guest}
+
+server:
+  port: 8084
+
+app:
+  exchange: energy.exchange
+  routing:
+    produced: energy.produced
+    used: energy.used
+  fixedRateMs: 5000
+  initialDelayMs: 2000
+  ids:
+    producer: solar-1
+    sourceType: SOLAR
+    community: ec-01
