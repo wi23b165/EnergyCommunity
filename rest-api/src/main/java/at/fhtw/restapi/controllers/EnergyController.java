@@ -1,7 +1,8 @@
 package at.fhtw.restapi.controllers;
 
 import at.fhtw.restapi.services.EnergyService;
-import at.fhtw.restapi.services.EnergyUsageDTO;
+import at.fhtw.restapi.services.dto.DaySummaryDTO;
+import at.fhtw.restapi.services.dto.EnergyUsageDTO;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,33 +14,32 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping({"/energy", "/api/energy"})   // <-- beide Präfixe erlaubt
-@CrossOrigin(origins = "http://localhost:8080") // GUI läuft normalerweise auf 8080
+@RequestMapping({"/energy", "/api/energy"})
+@CrossOrigin(origins = "http://localhost:8080")
 public class EnergyController {
 
-    private final EnergyService energyService;
+    private final EnergyService service;
 
-    public EnergyController(EnergyService energyService) {
-        this.energyService = energyService;
+    public EnergyController(EnergyService service) {
+        this.service = service;
     }
 
+    // /energy/current
     @GetMapping("/current")
-    public ResponseEntity<?> getCurrentEnergy() {
+    public ResponseEntity<?> current() {
         try {
-            EnergyUsageDTO dto = energyService.getCurrentHour();
-            if (dto == null) return ResponseEntity.noContent().build();
-            return ResponseEntity.ok(dto);
+            EnergyUsageDTO dto = service.getCurrentHour();
+            return dto == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(dto);
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of(
                     "error", "INTERNAL_ERROR", "message", String.valueOf(e.getMessage())));
         }
     }
 
+    // /energy/historical?start=YYYY-MM-DD&end=YYYY-MM-DD  (end inclusive)
     @GetMapping("/historical")
-    public ResponseEntity<?> getHistorical(
-            @RequestParam("start") String start,
-            @RequestParam("end") String end) {
-
+    public ResponseEntity<?> historical(@RequestParam("start") String start,
+                                        @RequestParam("end") String end) {
         try {
             LocalDate s = LocalDate.parse(start, DateTimeFormatter.ISO_DATE);
             LocalDate e = LocalDate.parse(end, DateTimeFormatter.ISO_DATE);
@@ -47,14 +47,12 @@ public class EnergyController {
                 return ResponseEntity.badRequest().body(Map.of("error", "End date must be after start date"));
             }
             LocalDateTime from = s.atStartOfDay();
-            LocalDateTime to   = e.plusDays(1).atStartOfDay();
-
-            List<EnergyUsageDTO> rows = energyService.aggregateByHour(from, to);
+            LocalDateTime to   = e.plusDays(1).atStartOfDay(); // exklusiv
+            List<EnergyUsageDTO> rows = service.getHourly(from, to);
             return ResponseEntity.ok(rows);
         } catch (DateTimeParseException ex) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Invalid date format. Use YYYY-MM-DD"));
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid date. Use YYYY-MM-DD"));
         } catch (Exception ex) {
-            ex.printStackTrace();
             return ResponseEntity.internalServerError().body(Map.of(
                     "error", "INTERNAL_ERROR", "message", String.valueOf(ex.getMessage())));
         }

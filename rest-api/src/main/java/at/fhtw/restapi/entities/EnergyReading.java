@@ -13,7 +13,6 @@ public class EnergyReading {
     @Column(name = "recorded_at", nullable = false)
     private LocalDateTime recordedAt;
 
-    // kWh values; adapt as needed
     @Column(name = "community_produced", nullable = false)
     private double communityProduced;
 

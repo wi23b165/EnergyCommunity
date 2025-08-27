@@ -1,0 +1,38 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: usage-worker
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/energydb
+    username: disysuser
+    password: disyspw
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # baseline-on-migrate: true  # nur benutzen, wenn DB schon Tabellen hat, aber Flyway-Historie fehlt
+
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+ec:
+  exchange: energy.exchange
+  queue:
+    used: energy.used
+  routing:
+    used: energy.used
