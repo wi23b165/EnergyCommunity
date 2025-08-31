@@ -1,4 +1,4 @@
-package at.fhtw.usageworker.messaging;
+package at.fhtw.usageworker.model;
 
 import at.fhtw.usageworker.model.ProductionEvent;
 import at.fhtw.usageworker.service.UsageService;
