@@ -11,7 +11,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.*;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 
 @Slf4j
 @Service
@@ -21,85 +24,75 @@ public class UsageService {
     private final UsageHourlyRepository usageRepo;
     private final RabbitTemplate rabbitTemplate;
 
-    @Value("${ec.exchange}") private String exchange;
-    @Value("${ec.routing.update}") private String rkUpdate;
+    @Value("${ec.exchange}")        private String exchange;
+    @Value("${ec.routing.update}")  private String rkUpdate;
 
-    /** Listener-kompatibel: aggregiert bereits vorbereitete Dreifach-Werte (produced/used/grid). */
+    /**
+     * Aggregiert einen kombinierten Event (produced/used).
+     * Grid wird DB-seitig neu berechnet: max(used - produced, 0).
+     */
     @Transactional
     public void apply(UsageEvent evt) {
         LocalDateTime hour = truncateToHourUtc(evt.getTimestamp());
-        UsageHourly row = usageRepo.findById(hour)
-                .orElseGet(() -> new UsageHourly(hour, 0d, 0d, 0d));
 
-        row.setCommunityUsed  (round3(row.getCommunityUsed()   + evt.getCommunityUsed()));
-        row.setGridUsed       (round3(row.getGridUsed()        + evt.getGridUsed()));
-        row.setCommunityProduced(round3(row.getCommunityProduced() + evt.getCommunityProduced()));
+        // Optional: Deltas runden wie bisher (falls gewünscht)
+        double producedDelta = round3(evt.getCommunityProduced());
+        double usedDelta     = round3(evt.getCommunityUsed());
 
-        usageRepo.save(row);
-        publish(row);
-        log.info("✅ aggregated (apply) hour={}, produced={}, used={}, grid={}",
-                hour, row.getCommunityProduced(), row.getCommunityUsed(), row.getGridUsed());
+        usageRepo.upsertDeltaRecomputeGrid(hour, producedDelta, usedDelta);
+
+        // Für Publish aktuellen Stand lesen
+        usageRepo.findById(hour).ifPresent(this::publish);
+
+        log.info("✅ aggregated (apply) hour={}, +produced={}, +used={}",
+                hour, producedDelta, usedDelta);
     }
 
-    /** Verarbeitet einen reinen VERBRAUCHS-Event (kWh) und berechnet Grid-Anteil gegen den aktuellen Produktionsstand. */
+    /**
+     * Reiner VERBRAUCHS-Event (kWh). Grid wird DB-seitig neu berechnet.
+     */
     @Transactional
     public void processUsage(Instant tsUtc, double kwh) {
         LocalDateTime hour = truncateToHourUtc(tsUtc);
-        UsageHourly row = usageRepo.findById(hour)
-                .orElseGet(() -> new UsageHourly(hour, 0d, 0d, 0d));
 
-        double newUsed = row.getCommunityUsed() + kwh;
+        double usedDelta = round3(kwh);
+        usageRepo.upsertDeltaRecomputeGrid(hour, 0.0, usedDelta);
 
-        // Grid = Überschuss des Verbrauchs über die Community-Produktion
-        double newGrid = 0d;
-        if (newUsed > row.getCommunityProduced()) {
-            newGrid = round3(newUsed - row.getCommunityProduced());
-        }
-
-        row.setCommunityUsed(round3(newUsed));
-        row.setGridUsed(newGrid);
-
-        usageRepo.save(row);
-        publish(row);
-        log.info("✅ aggregated (usage) hour={}, produced={}, used={}, grid={}",
-                hour, row.getCommunityProduced(), row.getCommunityUsed(), row.getGridUsed());
+        usageRepo.findById(hour).ifPresent(this::publish);
+        log.info("✅ aggregated (usage) hour={}, +used={}", hour, usedDelta);
     }
 
-    /** Verarbeitet einen reinen PRODUKTIONS-Event (kWh). */
+    /**
+     * Reiner PRODUKTIONS-Event (kWh). Grid wird DB-seitig neu berechnet.
+     */
     @Transactional
     public void processProduction(Instant tsUtc, double kwh) {
         LocalDateTime hour = truncateToHourUtc(tsUtc);
-        UsageHourly row = usageRepo.findById(hour)
-                .orElseGet(() -> new UsageHourly(hour, 0d, 0d, 0d));
 
-        row.setCommunityProduced(round3(row.getCommunityProduced() + kwh));
+        double producedDelta = round3(kwh);
+        usageRepo.upsertDeltaRecomputeGrid(hour, producedDelta, 0.0);
 
-        // Wenn Produktion gestiegen ist, könnte der bisherige Grid-Überschuss teilweise verschwinden.
-        // In unserem Modell bleibt grid_used = max(0, used - produced) für die Stunde.
-        double recomputedGrid = 0d;
-        if (row.getCommunityUsed() > row.getCommunityProduced()) {
-            recomputedGrid = round3(row.getCommunityUsed() - row.getCommunityProduced());
-        }
-        row.setGridUsed(recomputedGrid);
-
-        usageRepo.save(row);
-        publish(row);
-        log.info("✅ aggregated (production) hour={}, produced={}, used={}, grid={}",
-                hour, row.getCommunityProduced(), row.getCommunityUsed(), row.getGridUsed());
+        usageRepo.findById(hour).ifPresent(this::publish);
+        log.info("✅ aggregated (production) hour={}, +produced={}", hour, producedDelta);
     }
 
     /* ---------- Helpers ---------- */
 
+    /** Trunkiert einen Zeitstempel auf Stundenbeginn in UTC (z. B. 17:13 → 17:00). */
     private static LocalDateTime truncateToHourUtc(Instant ts) {
-        return ts.atOffset(ZoneOffset.UTC).withMinute(0).withSecond(0).withNano(0).toLocalDateTime();
+        return ts.atOffset(ZoneOffset.UTC)
+                .truncatedTo(ChronoUnit.HOURS)
+                .toLocalDateTime();
     }
 
+    /** Rundet auf drei Nachkommastellen. */
     private static double round3(double v) {
         return Math.round(v * 1000d) / 1000d;
     }
 
+    /** Publiziert den aktuellen Aggregatzustand an die GUI via RabbitMQ. */
     private void publish(UsageHourly row) {
-        String hourIso = row.getHour().atOffset(ZoneOffset.UTC).toString(); // z.B. 2025-01-10T14:00Z
+        String hourIso = row.getHour().atOffset(ZoneOffset.UTC).toString(); // z. B. 2025-01-10T14:00Z
         UpdateEvent evt = new UpdateEvent(
                 hourIso,
                 row.getCommunityProduced(),
