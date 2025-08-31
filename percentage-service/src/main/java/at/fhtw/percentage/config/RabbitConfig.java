@@ -1,4 +1,4 @@
-package at.fhtw.consumermeter.config;
+package at.fhtw.percentage.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.amqp.core.*;
@@ -15,32 +15,20 @@ import org.springframework.context.annotation.Configuration;
 public class RabbitConfig {
 
     @Bean
-    public TopicExchange exchange(@Value("${ec.exchange}") String name) {
-        return ExchangeBuilder.topicExchange(name).durable(true).build();
+    public TopicExchange energyExchange(@Value("${ec.exchange}") String exchange) {
+        return new TopicExchange(exchange, true, false);
     }
 
     @Bean
-    public Queue producedQueue(@Value("${ec.queue.produced}") String name) {
+    public Queue updateQueue(@Value("${ec.queue.update}") String name) {
         return QueueBuilder.durable(name).build();
     }
 
     @Bean
-    public Queue usedQueue(@Value("${ec.queue.used}") String name) {
-        return QueueBuilder.durable(name).build();
-    }
-
-    @Bean
-    public Binding bindProduced(@Qualifier("producedQueue") Queue producedQueue,
-                                TopicExchange exchange,
-                                @Value("${ec.routing.produced}") String rk) {
-        return BindingBuilder.bind(producedQueue).to(exchange).with(rk);
-    }
-
-    @Bean
-    public Binding bindUsed(@Qualifier("usedQueue") Queue usedQueue,
-                            TopicExchange exchange,
-                            @Value("${ec.routing.used}") String rk) {
-        return BindingBuilder.bind(usedQueue).to(exchange).with(rk);
+    public Binding updateBinding(@Qualifier("updateQueue") Queue updateQueue,
+                                 TopicExchange energyExchange,
+                                 @Value("${ec.routing.update}") String rk) {
+        return BindingBuilder.bind(updateQueue).to(energyExchange).with(rk);
     }
 
     @Bean

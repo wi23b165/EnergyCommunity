@@ -20,4 +20,12 @@ public class UsageListener {
                 event.getCommunityUsed(), event.getGridUsed(), event.getTimestamp());
         usageService.apply(event);
     }
+    @RabbitListener(queues = "#{@producedQueue.name}")
+    public void onProduced(at.fhtw.usageworker.model.ProductionEvent evt) {
+        var ts = java.time.OffsetDateTime.parse(evt.datetime())
+                .withOffsetSameInstant(java.time.ZoneOffset.UTC)
+                .toInstant();
+        usageService.processProduction(ts, evt.kwh());
+    }
+
 }

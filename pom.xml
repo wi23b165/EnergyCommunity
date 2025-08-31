@@ -19,8 +19,9 @@
         <module>producer-solar</module>
         <module>usage-worker</module>
         <module>consumer-meter</module>
-        <!-- later add: producer, consumer, services -->
-    </modules>
+        <module>percentage-service</module>
+
+        </modules>
 
     <dependencyManagement>
         <dependencies>

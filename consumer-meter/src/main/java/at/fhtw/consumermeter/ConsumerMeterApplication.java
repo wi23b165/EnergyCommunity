@@ -2,10 +2,12 @@ package at.fhtw.consumermeter;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.amqp.rabbit.annotation.EnableRabbit;
 
 @SpringBootApplication
-@org.springframework.amqp.rabbit.annotation.EnableRabbit
+@EnableRabbit
 public class ConsumerMeterApplication {
-    public static void main(String[] args) { SpringApplication.run(ConsumerMeterApplication.class, args); }
+    public static void main(String[] args) {
+        SpringApplication.run(ConsumerMeterApplication.class, args);
+    }
 }
