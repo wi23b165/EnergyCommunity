@@ -19,15 +19,22 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class EnergyApp extends Application {
-    private static final String API_URL = "http://localhost:8081/energy"; // API on 8081
+
+    // REST-API Basis
+    private static final String API_URL = "http://localhost:8081/energy";
+
     private final HttpClient http = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private Label communityLabel;
-    private Label gridLabel;
+    // Labels für Prozent-Anzeige
+    private Label communityDepletedLabel;
+    private Label gridPortionLabel;
 
     private Timer autoRefreshTimer;
     private boolean autoRefreshRunning = false;
@@ -36,19 +43,19 @@ public class EnergyApp extends Application {
     public void start(Stage stage) {
         Label titleLabel = new Label("Energy Community Dashboard");
 
-        // Current data section
-        Label currentLabel = new Label("Current Data:");
-        communityLabel = new Label("Community Produced: –");
-        gridLabel = new Label("Grid Used: –");
+        // Current Percentage
+        Label currentLabel = new Label("Current Percentage:");
+        communityDepletedLabel = new Label("Community Depleted: – %");
+        gridPortionLabel = new Label("Grid Portion: – %");
+
         Button refreshButton = new Button("Refresh");
         refreshButton.setOnAction(e -> fetchCurrent());
 
-        // Auto-refresh button (CREATE IT BEFORE adding to the VBox!)
         Button autoRefreshButton = new Button("Start Auto-Refresh");
         autoRefreshButton.setOnAction(e -> toggleAutoRefresh(autoRefreshButton));
 
-        // Historical data section
-        Label historicalLabel = new Label("Historical Data:");
+        // Historical Usage
+        Label historicalLabel = new Label("Historical Usage:");
         DatePicker startDate = new DatePicker();
         DatePicker endDate = new DatePicker();
         Button showDataButton = new Button("Show Data");
@@ -66,8 +73,8 @@ public class EnergyApp extends Application {
 
         VBox root = new VBox(20,
                 titleLabel,
-                currentLabel, communityLabel, gridLabel,
-                refreshButton, autoRefreshButton,   // now it exists 👍
+                currentLabel, communityDepletedLabel, gridPortionLabel,
+                refreshButton, autoRefreshButton,
                 historicalLabel, historicalGrid, showDataButton, resultArea
         );
         root.setPadding(new Insets(20));
@@ -75,22 +82,22 @@ public class EnergyApp extends Application {
         Scene scene = new Scene(root, 600, 500);
         stage.setScene(scene);
         stage.setTitle("Energy Community");
-        stage.setOnCloseRequest(e -> {
-            if (autoRefreshTimer != null) autoRefreshTimer.cancel();
-        });
+        stage.setOnCloseRequest(e -> { if (autoRefreshTimer != null) autoRefreshTimer.cancel(); });
         stage.show();
     }
 
+    /** Holt den aktuellen Prozent-Stand. Robust gegen beide Formate. */
     private void fetchCurrent() {
         var req = HttpRequest.newBuilder(URI.create(API_URL + "/current")).GET().build();
+
         new Thread(() -> {
             try {
                 var res = http.send(req, HttpResponse.BodyHandlers.ofString());
 
                 if (res.statusCode() == 204) {
                     Platform.runLater(() -> {
-                        communityLabel.setText("Community Produced: (no data)");
-                        gridLabel.setText("Grid Used: (no data)");
+                        communityDepletedLabel.setText("Community Depleted: (no data)");
+                        gridPortionLabel.setText("Grid Portion: (no data)");
                     });
                     return;
                 }
@@ -99,15 +106,39 @@ public class EnergyApp extends Application {
                     return;
                 }
 
-                EnergyUsageDTO dto = mapper.readValue(res.body(), EnergyUsageDTO.class);
-                Platform.runLater(() -> {
-                    communityLabel.setText(String.format(
-                            "Community Produced: %.3f kWh | Used: %.3f kWh",
-                            dto.communityProduced, dto.communityUsed));
-                    gridLabel.setText(String.format(
-                            "Grid Used: %.3f kWh (hour %s)",
-                            dto.gridUsed, dto.hourIso));
-                });
+                String body = res.body();
+                JsonNode root = mapper.readTree(body);
+
+                // Fall A: Prozent-Objekt (gewünschtes Format)
+                if (root.has("communityDepleted") || root.has("gridPortion")) {
+                    CurrentPercentageDTO dto = mapper.treeToValue(root, CurrentPercentageDTO.class);
+                    Platform.runLater(() -> {
+                        communityDepletedLabel.setText(String.format("Community Depleted: %.2f %%", dto.communityDepleted));
+                        gridPortionLabel.setText(String.format("Grid Portion: %.2f %% (hour %s)", dto.gridPortion, dto.hour));
+                    });
+                    return;
+                }
+
+                // Fall B (Fallback): Es kamen Usage-Daten, wir rechnen um
+                if (root.has("communityUsed") || root.has("gridUsed") || root.has("communityProduced")) {
+                    EnergyUsageDTO u = mapper.treeToValue(root, EnergyUsageDTO.class);
+
+                    double used = u.communityUsed;
+                    double grid = u.gridUsed;
+                    double gridPortion = (used > 0) ? (grid / used) * 100.0 : 0.0;
+                    // einfache Annahme: "Depleted" ~ Anteil NICHT aus dem Grid (für Fallback ausreichend)
+                    double communityDepleted = Math.max(0.0, Math.min(100.0, 100.0 - gridPortion));
+
+                    Platform.runLater(() -> {
+                        communityDepletedLabel.setText(String.format("Community Depleted: %.2f %%", communityDepleted));
+                        gridPortionLabel.setText(String.format("Grid Portion: %.2f %% (hour %s)", gridPortion, u.hour));
+                    });
+                    return;
+                }
+
+                // Unbekanntes Format
+                Platform.runLater(() -> showError("Unexpected response for /energy/current: " + body));
+
             } catch (Exception ex) {
                 showError("Error fetching current data: " +
                         (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()));
@@ -115,6 +146,7 @@ public class EnergyApp extends Application {
         }).start();
     }
 
+    /** Historische Nutzungsdaten (unverändert) */
     private void fetchHistorical(DatePicker startDate, DatePicker endDate, TextArea out) {
         if (startDate.getValue() == null || endDate.getValue() == null) {
             showError("Please select both start and end dates.");
@@ -139,7 +171,7 @@ public class EnergyApp extends Application {
 
                 String text = Arrays.stream(list)
                         .map(d -> String.format("%s  produced=%.3f  used=%.3f  grid=%.3f",
-                                d.hourIso, d.communityProduced, d.communityUsed, d.gridUsed))
+                                d.hour, d.communityProduced, d.communityUsed, d.gridUsed))
                         .collect(Collectors.joining("\n"));
 
                 Platform.runLater(() -> out.setText(text.isEmpty() ? "(no data)" : text));
@@ -172,15 +204,31 @@ public class EnergyApp extends Application {
             autoRefreshTimer = new Timer(true);
             autoRefreshTimer.scheduleAtFixedRate(new TimerTask() {
                 @Override public void run() { fetchCurrent(); }
-            }, 0, 10_000); // every 10 seconds
+            }, 0, 10_000);
             autoRefreshRunning = true;
             btn.setText("Stop Auto-Refresh");
         }
     }
 
-    // minimal DTO to map API responses
+    // === DTOs ===
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class CurrentPercentageDTO {
+        @JsonAlias({"hour", "hourIso"})
+        public String hour;
+
+        @JsonAlias({"communityDepleted", "community_depleted"})
+        public double communityDepleted;
+
+        @JsonAlias({"gridPortion", "grid_portion"})
+        public double gridPortion;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class EnergyUsageDTO {
-        public String hourIso;
+        @JsonAlias({"hour", "hourIso"})
+        public String hour;
+
         public double communityProduced;
         public double communityUsed;
         public double gridUsed;

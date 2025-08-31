@@ -1,12 +1,12 @@
 package at.fhtw.usageworker.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.amqp.core.Binding;
-import org.springframework.amqp.core.BindingBuilder;
-import org.springframework.amqp.core.Queue;
-import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,30 +19,43 @@ public class RabbitConfig {
         return new TopicExchange(exchange, true, false);
     }
 
+    // --- Queues ---
     @Bean
-    public Queue usedQueue(@Value("${ec.queue.used}") String queue) {
-        return new Queue(queue, true);
+    public Queue usedQueue(@Value("${ec.queue.used}") String name) {
+        return QueueBuilder.durable(name).build();
     }
 
     @Bean
-    public Binding usedBinding(Queue usedQueue,
+    public Queue producedQueue(@Value("${ec.queue.produced}") String name) {
+        return QueueBuilder.durable(name).build();
+    }
+
+    // --- Bindings ---
+    @Bean
+    public Binding usedBinding(@Qualifier("usedQueue") Queue usedQueue,
                                TopicExchange energyExchange,
                                @Value("${ec.routing.used}") String routingKey) {
         return BindingBuilder.bind(usedQueue).to(energyExchange).with(routingKey);
     }
 
-    /** Ein einzelner JSON-Converter für Rabbit */
+    @Bean
+    public Binding producedBinding(@Qualifier("producedQueue") Queue producedQueue,
+                                   TopicExchange energyExchange,
+                                   @Value("${ec.routing.produced}") String routingKey) {
+        return BindingBuilder.bind(producedQueue).to(energyExchange).with(routingKey);
+    }
+
+    // JSON Converter
     @Bean
     public MessageConverter messageConverter(ObjectMapper mapper) {
         return new Jackson2JsonMessageConverter(mapper);
     }
 
-    // RabbitConfig im usage-worker
+    // RabbitTemplate mit JSON
     @Bean
-    public Binding producedBinding(Queue usedQueue,
-                                   TopicExchange energyExchange,
-                                   @Value("${ec.routing.produced:energy.produced}") String key) {
-        return BindingBuilder.bind(usedQueue).to(energyExchange).with(key);
+    public RabbitTemplate rabbitTemplate(ConnectionFactory cf, MessageConverter mc) {
+        RabbitTemplate tpl = new RabbitTemplate(cf);
+        tpl.setMessageConverter(mc);
+        return tpl;
     }
-
 }

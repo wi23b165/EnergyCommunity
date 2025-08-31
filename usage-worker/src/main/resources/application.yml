@@ -22,7 +22,6 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
-    # baseline-on-migrate: true  # nur benutzen, wenn DB schon Tabellen hat, aber Flyway-Historie fehlt
 
   rabbitmq:
     host: localhost
@@ -33,6 +32,9 @@ spring:
 ec:
   exchange: energy.exchange
   queue:
-    used: energy.used
+    used: usage.used          # << echte Queue-Namen
+    produced: usage.produced
   routing:
-    used: energy.used
+    used: energy.used         # << Routing-Keys auf dem Exchange
+    produced: energy.produced
+    update: energy.update     # << Veröffentlichung nach Aggregation

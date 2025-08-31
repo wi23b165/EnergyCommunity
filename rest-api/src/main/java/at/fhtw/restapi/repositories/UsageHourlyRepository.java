@@ -9,9 +9,9 @@ import java.util.Optional;
 
 public interface UsageHourlyRepository extends JpaRepository<UsageHourly, LocalDateTime> {
 
-    // Bereichsabfrage (für Charts)
+    /** Bereichsabfrage (inklusive beider Grenzen) – Service macht das obere Ende exklusiv. */
     List<UsageHourly> findAllByHourBetweenOrderByHourAsc(LocalDateTime from, LocalDateTime to);
 
-    // NEU: neuester Datensatz (für /energy/current)
+    /** Neueste Stunde (für /energy/current). */
     Optional<UsageHourly> findTopByOrderByHourDesc();
 }
