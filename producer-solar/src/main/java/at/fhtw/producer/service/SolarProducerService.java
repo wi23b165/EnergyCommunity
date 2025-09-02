@@ -2,79 +2,70 @@
 package at.fhtw.producer.service;
 
 import at.fhtw.producer.model.ProductionEvent;
-import at.fhtw.producer.model.UsageEvent;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.ThreadLocalRandom;
 
+@Slf4j
 @Service
 public class SolarProducerService {
 
     private final RabbitTemplate rabbitTemplate;
     private final TopicExchange exchange;
+    private final WeatherFactor weather;
 
     private final String rkProduced;
-    private final String rkUsed;
-
-    // einfache IDs via Config, damit GUI/DB später zuordnen kann
     private final String producerId;
     private final String sourceType;
-    private final String communityId;
 
     public SolarProducerService(RabbitTemplate rabbitTemplate,
                                 TopicExchange exchange,
+                                WeatherFactor weather,
                                 @Value("${app.routing.produced:energy.produced}") String rkProduced,
-                                @Value("${app.routing.used:energy.used}") String rkUsed,
                                 @Value("${app.ids.producer:solar-1}") String producerId,
-                                @Value("${app.ids.sourceType:SOLAR}") String sourceType,
-                                @Value("${app.ids.community:ec-01}") String communityId) {
+                                @Value("${app.ids.sourceType:SOLAR}") String sourceType) {
         this.rabbitTemplate = rabbitTemplate;
         this.exchange = exchange;
+        this.weather = weather;
         this.rkProduced = rkProduced;
-        this.rkUsed = rkUsed;
         this.producerId = producerId;
         this.sourceType = sourceType;
-        this.communityId = communityId;
     }
 
-    /**
-     * Erzeugt konsistente Produktions- und Verbrauchswerte
-     * und sendet ZWEI Nachrichten:
-     *   - ProductionEvent  → routingKey = app.routing.produced
-     *   - UsageEvent       → routingKey = app.routing.used
-     */
-    public Pair sendOneTick() {
-        ThreadLocalRandom rnd = ThreadLocalRandom.current();
+    /** Erzeugt einen PRODUCER-Event (kWh pro Minute) und published ihn. */
+    public ProductionEvent sendOneTick() {
+        var now = ZonedDateTime.now().truncatedTo(ChronoUnit.MINUTES);
 
-        // Produktion (Solar „0..2 kWh“ pro Tick)
-        double produced = round2(rnd.nextDouble(0.0, 2.0));
+        // Grundproduktion (pro Minute!)
+        double base = rnd(0.0005, 0.0060);
 
-        // Verbrauch (Community „0..2 kWh“)
-        double used = round2(rnd.nextDouble(0.0, 2.0));
+        // Tageszeit-Faktor
+        int h = now.getHour();
+        double dayFactor =
+                (h >= 10 && h <= 15) ? 1.8
+                        : (h >= 8  && h <= 9)  ? 1.2
+                        : (h >= 16 && h <= 18) ? 1.1
+                        : (h >= 6  && h <= 7)  ? 0.8
+                        : (h >= 19 && h <= 21) ? 0.5
+                        : 0.2;
 
-        // Netzbezug nur wenn Verbrauch > Produktion
-        double grid = 0.0;
-        if (used > produced) {
-            grid = round2(used - produced);
-        }
+        double weatherFactor = weather.factor();  // 0.3..1.3
+        double produced = round3(base * dayFactor * weatherFactor);
 
-        var now = Instant.now();
-
-        var prodEvt = new ProductionEvent(producerId, sourceType, produced, now);
-        var useEvt  = new UsageEvent(communityId, used, grid, now);
-
-        rabbitTemplate.convertAndSend(exchange.getName(), rkProduced, prodEvt);
-        rabbitTemplate.convertAndSend(exchange.getName(), rkUsed,     useEvt);
-
-        return new Pair(prodEvt, useEvt);
+        var evt = new ProductionEvent(producerId, sourceType, produced, now.toInstant());
+        rabbitTemplate.convertAndSend(exchange.getName(), rkProduced, evt);
+        log.debug("published produced: exchange={}, rk={}, evt={}", exchange.getName(), rkProduced, evt);
+        return evt;
     }
 
-    private static double round2(double v){ return Math.round(v * 100.0) / 100.0; }
-
-    // kleines Rückgabeobjekt für Logging/Controller
-    public record Pair(ProductionEvent produced, UsageEvent used) {}
+    private static double rnd(double min, double max) {
+        return ThreadLocalRandom.current().nextDouble(min, max);
+    }
+    private static double round3(double v){ return Math.round(v * 1000.0) / 1000.0; }
 }

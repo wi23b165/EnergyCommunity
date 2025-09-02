@@ -1,16 +1,18 @@
 spring:
+  application:
+    name: consumer-meter
   datasource:
     url: jdbc:postgresql://localhost:5432/energydb
     username: disysuser
     password: disyspw
-    hikari:
-      maximum-pool-size: 5
   jpa:
     hibernate:
       ddl-auto: update
-    properties:
-      hibernate.jdbc.time_zone: UTC
-      hibernate.format_sql: true
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PASS:guest}
 
 server:
   port: 8083
@@ -19,7 +21,7 @@ ec:
   exchange: energy.exchange
   routing:
     produced: energy.produced
-    used: energy.used
+    used:     energy.used
   queue:
     produced: meter.produced.q
-    used: meter.used.q
+    used:     meter.used.q

@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: percentage-service
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PASS:guest}
+  datasource:
+    url: jdbc:postgresql://localhost:5432/energydb
+    username: disysuser
+    password: disyspw
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: 8085
+
+ec:
+  exchange: energy.exchange
+  routing:
+    update: energy.update
+  queue:
+    update: percentage.update   # oder percentage.update.q – aber konsistent in Config & Binding!

@@ -2,8 +2,9 @@ package at.fhtw.percentage.messaging;
 
 import at.fhtw.percentage.repo.PercentageRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
@@ -12,17 +13,17 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 
+@Slf4j
 @Component
+@RequiredArgsConstructor
 public class UpdateListener {
-
-    private static final Logger log = LoggerFactory.getLogger(UpdateListener.class);
 
     private final PercentageRepository repo;
     private final ObjectMapper om;
 
-    public UpdateListener(PercentageRepository repo, ObjectMapper om) {
-        this.repo = repo;
-        this.om = om;
+    @PostConstruct
+    public void ensureTable() {
+        repo.ensureTable();
     }
 
     /** Nimmt JSON entgegen, das zu UpdateEvent passt (Jackson macht das Mapping). */
@@ -46,14 +47,14 @@ public class UpdateListener {
 
     private OffsetDateTime parseHour(String hourIso) {
         if (hourIso == null || hourIso.isBlank()) {
-            // fallback: aktuelle Stunde (UTC)
             return OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);
         }
         try {
-            return OffsetDateTime.parse(hourIso + ":00Z"); // wenn „YYYY-MM-DDTHH:mm“ kommt
-        } catch (DateTimeParseException ignore) {
-            // Versuch: Vollformat
+            // bevorzugt ISO mit 'Z'
             return OffsetDateTime.parse(hourIso).truncatedTo(ChronoUnit.HOURS);
+        } catch (DateTimeParseException ignore) {
+            // falls ohne Z (YYYY-MM-DDTHH:mm), hänge Z an:
+            return OffsetDateTime.parse(hourIso + "Z").truncatedTo(ChronoUnit.HOURS);
         }
     }
 
@@ -65,7 +66,7 @@ public class UpdateListener {
         double pct = (1.0 - (grid / used)) * 100.0;
         if (pct < 0) pct = 0;
         if (pct > 100) pct = 100;
-        return Math.round(pct * 100.0) / 100.0; // auf 2 Nachkommastellen
+        return Math.round(pct * 100.0) / 100.0; // 2 Nachkommastellen
     }
 
     private String safeJson(UpdateEvent e) {

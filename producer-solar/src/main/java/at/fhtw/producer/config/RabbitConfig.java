@@ -13,9 +13,9 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class RabbitConfig {
 
+    /** Exchange wird beim Start via RabbitAdmin deklariert (durable). */
     @Bean
     public TopicExchange energyExchange(@Value("${app.exchange:energy.exchange}") String name) {
-        // Queues/Bindings macht der Worker
         return new TopicExchange(name, true, false);
     }
 

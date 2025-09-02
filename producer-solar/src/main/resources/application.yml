@@ -1,15 +1,14 @@
-# src/main/resources/application.yml
 spring:
   application:
     name: producer-solar
-  jackson:
-    serialization:
-      WRITE_DATES_AS_TIMESTAMPS: false
   rabbitmq:
     host: ${RABBIT_HOST:localhost}
     port: ${RABBIT_PORT:5672}
     username: ${RABBIT_USER:guest}
     password: ${RABBIT_PASS:guest}
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false  # Instant als ISO-String
 
 server:
   port: 8084
@@ -19,9 +18,14 @@ app:
   routing:
     produced: energy.produced
     used: energy.used
-  fixedRateMs: 5000
-  initialDelayMs: 2000
   ids:
     producer: solar-1
     sourceType: SOLAR
     community: ec-01
+  fixedRateMs: 5000
+  initialDelayMs: 2000
+
+# Optional: Wetterfaktor deaktivierbar (wenn offline)
+weather:
+  enabled: true
+  url: https://api.open-meteo.com/v1/forecast?latitude=48.21&longitude=16.37&current=cloud_cover
