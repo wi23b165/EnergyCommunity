@@ -1,125 +1,150 @@
-# EnergyCommunity
+#  EnergyCommunity
 
-Distributed Systems Semester Project - FH Technikum Wien
-
-## Project Overview
-This project simulates an **Energy Community**, where energy production and consumption are collected and processed.
-It consists of the following components:
-
-- **PostgreSQL (Docker)** - stores all mesaurements
-- **Spring Boot REST API** - provides endpoints for retrieving and injecting energy data
-- **RabbitMQ** - message broker for communication between producers and consumers
-- **JavaFX GUI** - visualization of energy data
+**Distributed Systems Semester Project – FH Technikum Wien**  
+Team: Ambar Irfan, Julia Brandstätter, Yuchang Zhang
+GitHub_Link: https://github.com/wi23b165/EnergyCommunity.git
 
 ---
 
-## Startreihenfolge (Quickstart)
+##  Overview
+Dieses Projekt simuliert eine **Energy Community**, in der Energieproduktion (Solar) und -verbrauch (User/Consumer) in einem verteilten System erfasst, verarbeitet, gespeichert und visualisiert werden.  
+
+- **Kommunikation:** RabbitMQ  
+- **Persistenz:** PostgreSQL (via Docker, Flyway Migrationen)  
+- **Abfragen:** REST-API (Spring Boot)  
+- **Visualisierung:** JavaFX GUI  
+
+---
+
+##  Architektur
+
+### Services
+- **Producer-Solar** → simuliert Solarproduktion  
+- **Consumer-Meter** → simuliert Stromverbrauch  
+- **Usage-Worker** → aggregiert Werte & speichert in PostgreSQL  
+- **Percentage-Service** → berechnet Anteil Community vs. Grid  
+
+### Schnittstellen
+- **REST-API** → `/energy/current` und `/energy/historical`  
+- **JavaFX GUI** → Dashboard für aktuelle & historische Daten  
+
+### Infrastruktur
+- **PostgreSQL (5432)** – Datenbank  
+- **RabbitMQ (5672 / 15672)** – Message Broker  
+
+---
+
+##  Startreihenfolge
+
 1. **Docker-Services starten**
-    cd docker
-    docker compose up -d
-    - PostgreSQL -> Port **5432**
-    - RabbitMQ -> Ports **5672** (AMQP) & **15672** (Web UI)
-   
-2. **REST-API starten**
-    cd rest-api
-    mvn spring-boot:run
-    -> läuft auf http://localhost:8081
-3. **GUI starten**
-    Starte das JavaFX-Projekt (IDE "Run" oder mvn javafx:run, je nach Setup).
-    Die GUI greift auf http://localhost:8081 zu.
-## Ports
-   | 🔌 Komponente | Port  | Beschreibung                  |
-   |---------------|-------|-------------------------------|
-   | REST-API      | 8081  | Backend API                   |
-   | JavaFX GUI    | 8080  | (optional, wenn Web-GUI später) |
-   | Postgres      | 5432  | Datenbank                     |
-   | RabbitMQ      | 5672  | AMQP (Broker)                 |
-   | RabbitMQ      | 15672 | Web UI (http://localhost:15672) |
+   ```bash
+   cd docker
+   docker compose up -d
+   ```
+   - PostgreSQL → Port 5432  
+   - RabbitMQ → Ports 5672 / 15672  
 
-## Datenbank-Schema & Migrationen
-**Flyway** führt die Migrationen beim API-Start automatisch aus (rest-api/src/main/resources/db):
-   | 🗃️ Version | Datei                        | Beschreibung                          |
-   |-------------|------------------------------|---------------------------------------|
-   | V1          | V1__energy_reading.sql       | Basis-Tabelle `energy_reading`        |
-   | V2          | V2__usage_hourly.sql         | View/Aggregation pro Stunde           |
-   | V3          | V3__current_percentage.sql   | View/Aggregation „aktueller Stand“ (+ Indizes) |
+2. **Usage-Worker starten**
+   ```bash
+   cd usage-worker
+   mvn spring-boot:run
+   ```
 
-## REST-Schnittstelle (Beispiele)
+3. **Percentage-Service starten**
+   ```bash
+   cd percentage-service
+   mvn spring-boot:run
+   ```
+
+4. **Producer-Solar starten**
+   ```bash
+   cd producer-solar
+   mvn spring-boot:run
+   ```
+
+5. **Consumer-Meter starten**
+   ```bash
+   cd consumer-meter
+   mvn spring-boot:run
+   ```
+
+6. **REST-API starten**
+   ```bash
+   cd rest-api
+   mvn spring-boot:run
+   ```
+   Läuft auf → [http://localhost:8081](http://localhost:8081)
+
+7. **JavaFX GUI starten**
+   ```bash
+   cd gui
+   mvn javafx:run
+   ```
+
+---
+
+## 🔌 Ports
+
+| Komponente    | Port  | Beschreibung            |
+|---------------|-------|-------------------------|
+| REST-API      | 8081  | API Endpunkte           |
+| JavaFX GUI    | –     | Desktop-Anwendung       |
+| PostgreSQL    | 5432  | Datenbank               |
+| RabbitMQ      | 5672  | AMQP (Broker)           |
+| RabbitMQ      | 15672 | Web UI (guest/guest)    |
+
+---
+
+##  Datenbank
+
+### Tabellen
+- **usage_hourly** – Aggregation pro Stunde (Produktion, Verbrauch, Grid)  
+- **current_percentage** – Community vs. Grid Anteil  
+
+### Migrationen (Flyway)
+- V1__energy_reading.sql  
+- V2__usage_hourly.sql  
+- V3__current_percentage.sql
+- V4__indexes.sql
+- V1__init_usage_worker.sql
+
+
+---
+
+## REST-API Endpunkte
 
 ### 1) Aktueller Stand
-**Request:**  
-GET http://localhost:8081/energy/current
-
-**Beispiel-Antwort:**
-``` json
+```http
+GET /energy/current
+```
+Response:
+```json
 {
-   "hourIso": "2025-08-16T19:00",
-   "communityProduced": 5.2,
-   "communityUsed": 3.8,
-   "gridUsed": 1.4
+  "hour": "2025-09-02T14:00Z",
+  "usedKwh": 3.8,
+  "gridUsedKwh": 1.4,
+  "communityPct": 63.2
 }
 ```
-### 2) Historische Daten (inkl. beider Grenztage)
-**Request**
-GET http://localhost:8081/energy/historical?start=2025-08-16&end=2025-08-16
 
-**Bespiel-Antwort**
-``
-{
-    "hourIso": "2025-08-16T19:00"
-    "communityProduced": 5.2,
-    "communityUsed": 3.8,
-    "gridUsed": 1.4
-},
-{
-    "hourIso": "2025-08-16T18:00",
-    "communityProduced": 5.0,
-    "communityUsed": 4.0,
-    "gridUsed": 1.0
-}
-``
-### 3) Neuen Messwert einspeisen (Ingress)
-**Request**
-POST http://localhost:8081/ingress/reading
-Content-Type: application/json
-
-**Beispiel-Antwort**
-``` json
-{
-  "rescordedAT": "2025-08-16T18:35:00",
-  "communityProduced": 5.2,
-  "communityUsed": 3.8,
-  "gridUsed": 1.4
-}
+### 2) Historische Daten
+```http
+GET /energy/historical?start=2025-09-01&end=2025-09-02
 ```
-### JavaFX GUI
-Die Desktop-GUI zeigt:
-- den **aktuellen Stand**
-- sowie **historische Daten** (Start/End-Datum wählbar)
+Response:
+```json
+[
+  { "hour": "2025-09-01T10:00Z", "communityProduced": 5.0, "communityUsed": 4.0, "gridUsed": 1.0 },
+  { "hour": "2025-09-01T11:00Z", "communityProduced": 6.0, "communityUsed": 3.5, "gridUsed": 0.5 }
+]
+```
 
-**Screenshot**
-![img.png](img/img.png)
+---
 
-### RabbitMQ
-- Web UI: http://localhost:15672 (Standard-Login: guest/guest)
-- Producer/Consumer werden im nächsten Schritt ergänzt.
+##  GUI (JavaFX)
+- Zeigt **aktuellen Anteil** (Community vs. Grid)  
+- Abfrage **historischer Daten** (Datumsauswahl)  
+- **Auto-Refresh alle 10s**  
 
-**Geplante Queues/Exchanges** (Vorschlag)
-- Exchange: energy.topic (type: topic)
-- Queue: energy.readings.ingress (blind: reading.created)
-- Producer schickt neue Messwerte -> Consumer persistiert in DB
+---
 
-## ✅ Erledigt
-
-- Docker-Setup für **Postgres & RabbitMQ**
-- REST-API (**Current/Historical + Ingress**)
-- Flyway-Migrationen **V1–V3 (+ Indizes)**
-- JavaFX GUI: Anzeige von aktuellem Stand & historischen Daten, Anbindung an REST-API
-- Build/Run: Komponenten (API, GUI) lassen sich unabhängig starten
-
-## 🔜 Nächste Schritte
-
-- Consumer: Nachrichten aus RabbitMQ konsumieren und die Usage-/Aggregat-Tabelle korrekt updaten; anschließend Update-Message auf die Queue senden
-- Current Percentage Service: Update-Message empfangen und current_percentage (View/Materialized View oder Tabelle) korrekt aktualisieren
-- Energy User: Producer, der alle 1–5 s sinnvolle kWh-Usage-Werte an RabbitMQ sendet
-- Optional: **Alert-Logik / weitere Vis**
