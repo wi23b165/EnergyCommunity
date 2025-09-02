@@ -1,7 +1,7 @@
+// src/main/java/at/fhtw/usageworker/service/UsageService.java
 package at.fhtw.usageworker.service;
 
 import at.fhtw.usageworker.dto.UpdateEvent;
-import at.fhtw.usageworker.model.UsageEvent;
 import at.fhtw.usageworker.model.UsageHourly;
 import at.fhtw.usageworker.repo.UsageHourlyRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,29 +24,8 @@ public class UsageService {
     private final UsageHourlyRepository usageRepo;
     private final RabbitTemplate rabbitTemplate;
 
-    @Value("${ec.exchange}")        private String exchange;
-    @Value("${ec.routing.update}")  private String rkUpdate;
-
-    /**
-     * Aggregiert einen kombinierten Event (produced/used).
-     * Grid wird DB-seitig neu berechnet: max(used - produced, 0).
-     */
-    @Transactional
-    public void apply(UsageEvent evt) {
-        LocalDateTime hour = truncateToHourUtc(evt.getTimestamp());
-
-        // Optional: Deltas runden wie bisher (falls gewünscht)
-        double producedDelta = round3(evt.getCommunityProduced());
-        double usedDelta     = round3(evt.getCommunityUsed());
-
-        usageRepo.upsertDeltaRecomputeGrid(hour, producedDelta, usedDelta);
-
-        // Für Publish aktuellen Stand lesen
-        usageRepo.findById(hour).ifPresent(this::publish);
-
-        log.info("✅ aggregated (apply) hour={}, +produced={}, +used={}",
-                hour, producedDelta, usedDelta);
-    }
+    @Value("${ec.exchange}")       private String exchange;
+    @Value("${ec.routing.update}") private String rkUpdate;
 
     /**
      * Reiner VERBRAUCHS-Event (kWh). Grid wird DB-seitig neu berechnet.
@@ -90,7 +69,7 @@ public class UsageService {
         return Math.round(v * 1000d) / 1000d;
     }
 
-    /** Publiziert den aktuellen Aggregatzustand an die GUI via RabbitMQ. */
+    /** Publiziert den aktuellen Aggregatzustand via RabbitMQ. */
     private void publish(UsageHourly row) {
         String hourIso = row.getHour().atOffset(ZoneOffset.UTC).toString(); // z. B. 2025-01-10T14:00Z
         UpdateEvent evt = new UpdateEvent(
