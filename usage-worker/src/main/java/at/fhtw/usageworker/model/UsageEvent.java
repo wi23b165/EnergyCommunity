@@ -8,7 +8,7 @@ import java.time.Instant;
 public class UsageEvent {
     private double communityUsed;
     private double gridUsed;
-    private double communityProduced;
+
 
     /** ISO instant vom Producer (Z) */
     @JsonFormat(shape = JsonFormat.Shape.STRING)

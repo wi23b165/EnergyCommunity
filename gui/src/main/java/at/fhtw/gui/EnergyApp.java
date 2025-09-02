@@ -26,13 +26,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class EnergyApp extends Application {
 
-    // REST-API Basis
+    // REST-API Basis (Port anpassen, falls nötig)
     private static final String API_URL = "http://localhost:8081/energy";
 
     private final HttpClient http = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
-    // Labels für Prozent-Anzeige
+    // Labels
     private Label communityDepletedLabel;
     private Label gridPortionLabel;
 
@@ -86,7 +86,7 @@ public class EnergyApp extends Application {
         stage.show();
     }
 
-    /** Holt den aktuellen Prozent-Stand. Robust gegen beide Formate. */
+    /** Holt den aktuellen Prozent-Stand. Akzeptiert mehrere Formate. */
     private void fetchCurrent() {
         var req = HttpRequest.newBuilder(URI.create(API_URL + "/current")).GET().build();
 
@@ -109,26 +109,42 @@ public class EnergyApp extends Application {
                 String body = res.body();
                 JsonNode root = mapper.readTree(body);
 
-                // Fall A: Prozent-Objekt (gewünschtes Format)
+                // Fall A: Prozent-Objekt (alt)
                 if (root.has("communityDepleted") || root.has("gridPortion")) {
                     CurrentPercentageDTO dto = mapper.treeToValue(root, CurrentPercentageDTO.class);
+                    double community = dto.communityDepleted;
+                    double grid = dto.gridPortion != null
+                            ? dto.gridPortion
+                            : clamp100(100.0 - community);
+                    String hour = dto.hour != null ? dto.hour : "-";
                     Platform.runLater(() -> {
-                        communityDepletedLabel.setText(String.format("Community Depleted: %.2f %%", dto.communityDepleted));
-                        gridPortionLabel.setText(String.format("Grid Portion: %.2f %% (hour %s)", dto.gridPortion, dto.hour));
+                        communityDepletedLabel.setText(String.format("Community Depleted: %.2f %%", community));
+                        gridPortionLabel.setText(String.format("Grid Portion: %.2f %% (hour %s)", grid, hour));
                     });
                     return;
                 }
 
-                // Fall B (Fallback): Es kamen Usage-Daten, wir rechnen um
+                // Fall B: Prozent-Objekt (neu) -> communityPct (+ optional gridPortion)
+                if (root.has("communityPct")) {
+                    double community = root.path("communityPct").asDouble();
+                    double grid = root.has("gridPortion")
+                            ? root.path("gridPortion").asDouble()
+                            : clamp100(100.0 - community);
+                    String hour = root.has("hour") ? root.path("hour").asText() : "-";
+                    Platform.runLater(() -> {
+                        communityDepletedLabel.setText(String.format("Community Depleted: %.2f %%", community));
+                        gridPortionLabel.setText(String.format("Grid Portion: %.2f %% (hour %s)", grid, hour));
+                    });
+                    return;
+                }
+
+                // Fall C: Usage-Felder -> selbst berechnen
                 if (root.has("communityUsed") || root.has("gridUsed") || root.has("communityProduced")) {
                     EnergyUsageDTO u = mapper.treeToValue(root, EnergyUsageDTO.class);
-
                     double used = u.communityUsed;
                     double grid = u.gridUsed;
-                    double gridPortion = (used > 0) ? (grid / used) * 100.0 : 0.0;
-                    // einfache Annahme: "Depleted" ~ Anteil NICHT aus dem Grid (für Fallback ausreichend)
-                    double communityDepleted = Math.max(0.0, Math.min(100.0, 100.0 - gridPortion));
-
+                    double gridPortion = used > 0 ? (grid / used) * 100.0 : 0.0;
+                    double communityDepleted = clamp100(100.0 - gridPortion);
                     Platform.runLater(() -> {
                         communityDepletedLabel.setText(String.format("Community Depleted: %.2f %%", communityDepleted));
                         gridPortionLabel.setText(String.format("Grid Portion: %.2f %% (hour %s)", gridPortion, u.hour));
@@ -140,13 +156,13 @@ public class EnergyApp extends Application {
                 Platform.runLater(() -> showError("Unexpected response for /energy/current: " + body));
 
             } catch (Exception ex) {
-                showError("Error fetching current data: " +
-                        (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()));
+                Platform.runLater(() -> showError("Error fetching current data: " +
+                        (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage())));
             }
         }).start();
     }
 
-    /** Historische Nutzungsdaten (unverändert) */
+    /** Historische Nutzungsdaten (wie gehabt). */
     private void fetchHistorical(DatePicker startDate, DatePicker endDate, TextArea out) {
         if (startDate.getValue() == null || endDate.getValue() == null) {
             showError("Please select both start and end dates.");
@@ -182,14 +198,16 @@ public class EnergyApp extends Application {
         }).start();
     }
 
+    private static double clamp100(double v) {
+        return Math.max(0.0, Math.min(100.0, v));
+    }
+
     private void showError(String message) {
-        Platform.runLater(() -> {
-            Alert alert = new Alert(Alert.AlertType.ERROR);
-            alert.setTitle("Error");
-            alert.setHeaderText(null);
-            alert.setContentText(message);
-            alert.showAndWait();
-        });
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle("Error");
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
     }
 
     private void toggleAutoRefresh(Button btn) {
@@ -217,11 +235,13 @@ public class EnergyApp extends Application {
         @JsonAlias({"hour", "hourIso"})
         public String hour;
 
-        @JsonAlias({"communityDepleted", "community_depleted"})
+        // Community-Anteil (kann communityDepleted ODER communityPct heißen)
+        @JsonAlias({"communityDepleted", "community_depleted", "communityPct", "community_pct"})
         public double communityDepleted;
 
+        // Grid-Anteil ist optional
         @JsonAlias({"gridPortion", "grid_portion"})
-        public double gridPortion;
+        public Double gridPortion;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -229,8 +249,13 @@ public class EnergyApp extends Application {
         @JsonAlias({"hour", "hourIso"})
         public String hour;
 
+        @JsonAlias({"communityProduced", "producedKwh"})
         public double communityProduced;
+
+        @JsonAlias({"communityUsed", "usedKwh"})
         public double communityUsed;
+
+        @JsonAlias({"gridUsed", "gridUsedKwh"})
         public double gridUsed;
     }
 

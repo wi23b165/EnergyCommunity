@@ -2,11 +2,13 @@
 package at.fhtw.producer.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
+@EnableScheduling
 public class SolarScheduler {
 
     private final SolarProducerService service;
@@ -15,9 +17,10 @@ public class SolarScheduler {
         this.service = service;
     }
 
-    @Scheduled(fixedRateString = "${app.fixedRateMs:5000}", initialDelayString = "${app.initialDelayMs:2000}")
+    @Scheduled(fixedDelayString = "#{T(java.util.concurrent.ThreadLocalRandom).current().nextLong(1000,5001)}",
+            initialDelayString = "${app.initialDelayMs:2000}")
     public void tick() {
-        var pair = service.sendOneTick();
-        log.info("sent produced={}, used={}", pair.produced(), pair.used());
+        var evt = service.sendOneTick();
+        log.info("sent produced tick: {} kWh at {}", evt.producedKwh(), evt.timestamp());
     }
 }
