@@ -1,7 +1,9 @@
 #  EnergyCommunity
 
 **Distributed Systems Semester Project – FH Technikum Wien**  
+
 Team: Ambar Irfan, Julia Brandstätter, Yuchang Zhang
+
 GitHub_Link: https://github.com/wi23b165/EnergyCommunity.git
 
 ---
